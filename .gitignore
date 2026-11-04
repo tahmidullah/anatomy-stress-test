@@ -1,0 +1,21 @@
+# Never commit medical images or patient data.
+data/
+*.nii
+*.nii.gz
+*.dcm
+*.dicom
+*.nrrd
+*.mha
+*.mhd
+*.csv
+!.github/workflows/*.csv
+.env
+.env.*
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+.DS_Store
+.idea/
+.vscode/
