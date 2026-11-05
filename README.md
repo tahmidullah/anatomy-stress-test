@@ -72,7 +72,7 @@ Use **Use your own CT and segmentation** in the browser:
 4. Select an organ in the sidebar and inspect its overlay. Enter a descriptive name in **Selected organ label** (included in exported settings).
 5. Adjust boundary displacement. **Download mask + results + settings** produces a ZIP with the current full-grid `segmentation.nii.gz`, all offset measurements in `measurements.csv`, and `settings.json` with the label, affine, spacing, selected offset, method, and metrics. The existing CSV button remains available.
 
-Imports preserve physical geometry and reject mismatches; there is no silent interpolation. Cropped Slicer masks are accepted if they lie exactly on the CT grid. DICOM support covers regular single-frame CT series; enhanced multiframe, irregular spacing, duplicates, and gantry tilt require conversion/resampling in Slicer first. Mask drawing and automatic segmentation are not implemented.
+Imports preserve physical geometry and reject mismatches; there is no silent interpolation. Cropped Slicer masks are accepted if they lie exactly on the CT grid. DICOM support covers regular single-frame CT series; enhanced multiframe, irregular spacing, duplicates, and gantry tilt require conversion/resampling in Slicer first. Slice painting and erasing are supported; automatic segmentation is not implemented.
 
 Files are processed locally. Temporary uploads are deleted after import; loaded arrays remain in server memory until replacement or restart. Each browser cookie session has its own dataset (tabs in the same browser share it). This is a single-process local app, limited to four loaded sessions, 1 GiB of uploaded files, 100 million voxels per volume, and 500 million aggregate mask voxels. Restarting clears imported sessions. ZIPs must also expand to at most 1 GiB and 10,000 files. Detached NRRD files are unsupported. Real-world vendor DICOM variants may require conversion in Slicer.
 
@@ -191,3 +191,31 @@ MIT-licensed source code. Contributions and pull requests welcome.
 ![Synthetic segmentation offset and voxel-volume response](assets/example_output.png)
 
 The figure is generated from the same backend functions as the app; it is **not a screenshot of the web interface**. The +2 mm example is a synthetic shape whose original segmented volume is approximately 166.70 mL. Your actual output depends on the selected mask and voxel spacing.
+
+## Anatomical fragility map
+
+Select an organ, choose a displacement (0.5–3 mm), and click **Build map + compare organs**.
+
+The regional map partitions the original mask into 10 mm grid cells along canonical voxel axes, anchored at CT voxel index zero. Each cell reports `100 × removed baseline voxels / baseline voxels` after inward erosion. Measurements use original-resolution voxels; surface colors interpolate regional percentages between mesh vertices on a fixed 0–100% scale. Regions with fewer than 50 baseline voxels are flagged; larger regions appear first in the top-20 table. This cutoff is a display heuristic, not a confidence threshold.
+
+The organ comparison reports inward loss and outward gain relative to baseline. Ranking uses the volume span `100 × (expanded volume − eroded volume) / baseline volume` at equal displacement. Invalid masks are reported individually.
+
+**Download map and measurements** exports `regional_loss_pct.nii.gz` (original CT grid and affine, percent values inside the mask, NaN outside), all regions in `regions.csv`, the organ comparison in `organs.json`, and calculation settings in `settings.json`.
+
+This measures segmentation sensitivity, not tissue weakness, disease risk, mechanical stress, or calibrated uncertainty. Results depend on grid placement, cell size, voxel spacing, and field-of-view clipping. The map evaluates uniform inward erosion, not independent localized contour errors, and uses mask geometry rather than CT intensity. Subvoxel offsets may produce zero change. Validation uses synthetic fixtures and checks voxel conservation, physical units, thin/thick structures, subvoxel behavior, exports, and ranking. Real-dataset and external-tool validation remain future work.
+
+## Imaging workspace
+
+The default view is a compact four-up workspace: axial and 3D above sagittal and coronal. Import, segment selection, boundary displacement, and display controls are in the collapsible left panel. Use the corner button to maximize a view and **Fit views** to restore the layout and 3D camera. Slice scrolling, keyboard navigation, and linked click positions remain available. Slice aspect ratios use physical voxel spacing.
+
+**Display** provides soft-tissue, bone, and lung CT presets, numerical window level/width, and segmentation-overlay and crosshair toggles. **Fragility & analysis** opens the regional map, organ comparison, response curve, and exports. This is a Slicer-inspired viewing workflow; CT volume rendering is not included. The bundled data remains synthetic; upload real imaging to inspect real anatomy.
+
+## Create and edit segments
+
+After loading your CT and segmentation mask, the **Segments** list shows the imported labels. Select any label to edit it, or enter a name in **Selected organ label** and click **New empty**. **Duplicate** makes an independent copy of the selected mask. **Rename** saves the entered display name.
+
+Choose **Paint** or **Erase**, set the brush radius in millimeters, and click or drag on an axial, sagittal, or coronal image. Release to apply the stroke. The brush operates on the displayed slice only, uses physical voxel spacing, and does not interpolate masks between slices. Use slice scrolling to continue on neighboring slices. Editing works on the baseline mask and resets boundary displacement to zero. Choose **Navigate** to resume linked crosshair selection and stress testing.
+
+**Undo stroke** restores the most recent stroke for the selected segment (one-level undo, no redo). Creating or duplicating a segment clears this undo history. Measurements and the surface refresh after edits; existing fragility maps are invalidated. Empty segments can be viewed and painted but cannot produce a fragility map.
+
+Edits remain in the current browser session's server memory and are lost on replacement/restart. **Download mask + results + settings** saves the selected edited mask and its analysis; it does not save all segments as one scene. Original uploaded files are never overwritten. Segment painting is a basic manual tool, not automated segmentation or a full Slicer Segment Editor.

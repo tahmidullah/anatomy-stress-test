@@ -24,3 +24,19 @@ def test_png_slices_and_overlays_render():
         im=Image.open(BytesIO(payload))
         assert im.mode=='RGB'
         assert im.width>50 and im.height>50
+
+
+def test_window_and_overlay_controls():
+    from io import BytesIO
+    from PIL import Image
+    from fastapi.testclient import TestClient
+    from server import app
+    with TestClient(app) as client:
+        base={'organ':'liver','axis':'axial','index':61,'overlay':'false','crosshair':'false'}
+        gray=np.asarray(Image.open(BytesIO(client.get('/api/slice',params=base).content)))
+        assert np.array_equal(gray[:,:,0],gray[:,:,1])
+        bone=np.asarray(Image.open(BytesIO(client.get('/api/slice',params={**base,'level':400,'width':1800}).content)))
+        assert not np.array_equal(gray,bone)
+        overlay=np.asarray(Image.open(BytesIO(client.get('/api/slice',params={**base,'overlay':'true'}).content)))
+        assert not np.array_equal(gray,overlay)
+        assert client.get('/api/slice',params={**base,'width':0}).status_code==422

@@ -31,11 +31,15 @@ class StressExperiment:
     @classmethod
     def from_mask(cls, mask: np.ndarray, spacing, max_offset_mm: float = 3.0):
         mask = np.asarray(mask, dtype=bool)
-        if mask.ndim != 3 or not mask.any():
+        if mask.ndim != 3:
             raise ValueError("Mask must be a non-empty 3D binary volume")
         spacing = tuple(float(x) for x in spacing)
         if any(not np.isfinite(x) or x <= 0 for x in spacing):
             raise ValueError("Voxel spacing must contain finite positive values")
+        if not mask.any():
+            return cls(0, tuple(mask.shape), spacing, (0,0,0), (1,1,1),
+                       np.zeros((1,1,1), bool), np.zeros((1,1,1), np.float32),
+                       np.full((1,1,1), np.inf, np.float32), False)
         positions = np.where(mask)
         mins = [int(np.min(x)) for x in positions]
         maxs = [int(np.max(x)) + 1 for x in positions]
@@ -76,7 +80,7 @@ class StressExperiment:
             "baseline_ml": round(baseline, 3),
             "current_ml": round(current, 3),
             "delta_ml": round(current - baseline, 3),
-            "delta_pct": round(100 * (current / baseline - 1), 2),
+            "delta_pct": round(100 * (current / baseline - 1), 2) if baseline else 0.0,
             "voxels": count,
             "voxel_volume_mm3": round(self.voxel_volume_ml * 1000, 5),
             "touches_fov": self.touches_fov,
@@ -119,7 +123,7 @@ def mesh_geometry(local_mask: np.ndarray, start, affine, step_size: int = 2) -> 
     mask = np.pad(np.asarray(local_mask, dtype=np.uint8), 1)
     verts, faces, _, _ = marching_cubes(mask, level=0.5, step_size=step_size, allow_degenerate=False)
     ijk = verts + np.asarray(start, dtype=float)[None, :] - 1
-    world = ijk @ np.asarray(affine, dtype=float)[:3, :3].T + np.asarray(affine)[:3, 3]
+    world = np.einsum('nj,ij->ni', ijk, np.asarray(affine, dtype=float)[:3, :3]) + np.asarray(affine)[:3, 3]
     return {
         "x": np.round(world[:, 0], 3).tolist(),
         "y": np.round(world[:, 1], 3).tolist(),

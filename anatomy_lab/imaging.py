@@ -27,7 +27,7 @@ def display_plane(array: np.ndarray, axis: str, index: int) -> np.ndarray:
 
 def slice_png(image: np.ndarray, base_mask: np.ndarray, experiment: StressExperiment,
               axis: str, index: int, offset_mm: float, crosshair: tuple[int, int, int],
-              window_low: float = -150, window_high: float = 250) -> bytes:
+              window_low: float = -150, window_high: float = 250, overlay: bool = True, show_crosshair: bool = True) -> bytes:
     """Make one color PNG. Boundary overlays are visualization-only."""
     plane = display_plane(image, axis, index)
     gray = np.clip((plane - window_low) * 255 / (window_high - window_low), 0, 255).astype(np.uint8)
@@ -41,13 +41,14 @@ def slice_png(image: np.ndarray, base_mask: np.ndarray, experiment: StressExperi
         raw[start_u:start_u + altered_patch.shape[0], start_v:start_v + altered_patch.shape[1]] = altered_patch
         altered = np.flip(raw.T, axis=(0, 1))
 
-    if altered.any():
-        rgb[altered] = (rgb[altered].astype(np.float32) * .82 +
-                        np.array([99, 122, 255]) * .18).astype(np.uint8)
-    base_border = original & ~binary_erosion(original)
-    edited_border = altered & ~binary_erosion(altered)
-    rgb[base_border] = [224, 198, 255]
-    rgb[edited_border] = [141, 163, 255]
+    if overlay:
+        if altered.any():
+            rgb[altered] = (rgb[altered].astype(np.float32) * .82 +
+                            np.array([99, 122, 255]) * .18).astype(np.uint8)
+        base_border = original & ~binary_erosion(original)
+        edited_border = altered & ~binary_erosion(altered)
+        rgb[base_border] = [224, 198, 255]
+        rgb[edited_border] = [141, 163, 255]
 
     i, j, k = crosshair
     if axis == "axial":
@@ -56,7 +57,7 @@ def slice_png(image: np.ndarray, base_mask: np.ndarray, experiment: StressExperi
         x, y = image.shape[0] - 1 - i, image.shape[2] - 1 - k
     else:
         x, y = image.shape[1] - 1 - j, image.shape[2] - 1 - k
-    if 0 <= x < rgb.shape[1] and 0 <= y < rgb.shape[0]:
+    if show_crosshair and 0 <= x < rgb.shape[1] and 0 <= y < rgb.shape[0]:
         # Subtle crosshair with 3-pixel center opening so anatomy remains visible.
         color = np.array([255, 255, 255], dtype=np.uint8)
         for xx in range(rgb.shape[1]):

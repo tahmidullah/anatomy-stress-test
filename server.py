@@ -105,13 +105,81 @@ async def import_scan(request: Request):
             key = uuid.uuid4().hex
             SESSIONS.pop(old, None)
             SESSIONS[key] = dataset
-            experiment.cache_clear(); _mesh.cache_clear()
+            experiment.cache_clear(); _mesh.cache_clear(); fragility_data.cache_clear()
             from fastapi.responses import JSONResponse
             response = JSONResponse({'ok': True})
             response.set_cookie('anatomy_session', key, httponly=True, samesite='strict')
             return response
     except (ValueError, RuntimeError, KeyError, OSError, zipfile.BadZipFile) as exc:
         raise HTTPException(422, str(exc)) from exc
+
+
+from pydantic import BaseModel, Field
+from typing import Literal, Optional, List
+from anatomy_lab.editing import brush
+import copy
+
+class SegmentEdit(BaseModel):
+    operation: Literal['create', 'duplicate', 'rename', 'stroke', 'undo']
+    organ: Optional[str] = None
+    label: str = Field('', max_length=120)
+    axis: Literal['axial', 'coronal', 'sagittal'] = 'axial'
+    index: int = 0
+    points: List[List[float]] = Field(default_factory=list, max_length=2000)
+    radius_mm: float = Field(3, ge=.5, le=30)
+    erase: bool = False
+
+
+@app.post('/api/segments')
+async def edit_segment(edit: SegmentEdit, request: Request):
+    origin = request.headers.get('origin')
+    if origin and origin != str(request.base_url).rstrip('/'):
+        raise HTTPException(403, 'Cross-origin edits are not allowed.')
+    old = request.cookies.get('anatomy_session', '')
+    if len(SESSIONS) >= 4 and old not in SESSIONS:
+        raise HTTPException(422, 'Four scan sessions are open. Restart to clear them.')
+    source = CURRENT.get()
+    dataset = copy.copy(source)
+    dataset.masks = dict(source.masks)
+    dataset.mask_files = dict(source.mask_files)
+    dataset._loaded = dict(source._loaded)
+    dataset.labels = dict(getattr(source, 'labels', {}))
+    organ = edit.organ
+    if edit.operation != 'create' and organ not in source.structures:
+        raise HTTPException(404, 'Select an existing segment.')
+    try:
+        if edit.operation in ('create', 'duplicate'):
+            if not edit.label.strip(): raise ValueError('Enter a segment name.')
+            if len(dataset.structures) >= 128 or (len(dataset.structures)+1)*dataset.image.size > 500_000_000:
+                raise ValueError('Segment memory limit reached.')
+            mask = np.zeros(dataset.image.shape, bool) if edit.operation == 'create' else source.mask(organ).copy()
+            organ = 'segment_' + uuid.uuid4().hex[:12]
+            dataset.masks[organ] = mask
+            dataset.labels[organ] = edit.label.strip()
+            dataset.undo = None
+        elif edit.operation == 'rename':
+            if not edit.label.strip(): raise ValueError('Enter a segment name.')
+            dataset.labels[organ] = edit.label.strip()
+        elif edit.operation == 'stroke':
+            original = source.mask(organ)
+            updated = brush(original, source.spacing, edit.axis, edit.index, edit.points, edit.radius_mm, edit.erase)
+            dataset.undo = (organ, original)
+            dataset.masks[organ] = updated
+        else:
+            undo = getattr(source, 'undo', None)
+            if undo is None or undo[0] != organ: raise ValueError('No stroke to undo for this segment.')
+            dataset.masks[organ] = undo[1]
+            dataset.undo = None
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+    key = uuid.uuid4().hex
+    SESSIONS.pop(old, None)
+    SESSIONS[key] = dataset
+    experiment.cache_clear(); _mesh.cache_clear(); fragility_data.cache_clear()
+    from fastapi.responses import JSONResponse
+    response = JSONResponse({'organ': organ, 'label': dataset.labels.get(organ, organ)})
+    response.set_cookie('anatomy_session',key,httponly=True,samesite='strict')
+    return response
 
 
 @app.get('/api/export')
@@ -172,7 +240,7 @@ def metadata():
     return {
         "name": "Anatomy Stress Test", "version": app.version,
         "source": DATA.kind, "source_label": DATA.label,
-        "structures": [{"name": x, "label": x.replace("_", " ").title(),
+        "structures": [{"name": x, "label": getattr(CURRENT.get(), "labels", {}).get(x, x.replace("_", " ").title()),
                         "color": PALETTE.get(x, "#a3bdcf")} for x in DATA.structures],
         "shape": DATA.image.shape, "spacing_mm": DATA.spacing,
         "window": {"level_hu": 50, "width_hu": 400},
@@ -190,7 +258,7 @@ def metrics(organ: str, offset: float = 0):
     exp = experiment(organ)
     mask = DATA.mask(organ)
     val = exp.metrics(offset)
-    val.update({"organ": organ, "centroid_ijk": mask_centroid(mask),
+    val.update({"organ": organ, "centroid_ijk": mask_centroid(mask) if mask.any() else [n//2 for n in mask.shape], "empty": not bool(mask.any()),
                 "spacing_mm": exp.spacing,
                 "boundary_method": "Euclidean voxel-center distance transform"})
     return val
@@ -213,9 +281,9 @@ def scene(organ: str, offset: float = 0):
     offset = checked_offset(offset)
     exp = experiment(organ)
     traces = []
-    if DATA.kind == "synthetic":
+    if DATA.kind == "synthetic" and DATA.mask(organ).any():
         center = np.array(mask_centroid(DATA.mask(organ)), dtype=float) * np.array(DATA.spacing)
-        others = [n for n in DATA.structures if n != organ]
+        others = [n for n in DATA.structures if n != organ and DATA.mask(n).any()]
         others.sort(key=lambda n: np.linalg.norm(
             np.array(mask_centroid(DATA.mask(n))) * np.array(DATA.spacing) - center))
         for name in others[:4]:
@@ -235,6 +303,8 @@ def scene(organ: str, offset: float = 0):
 def slice_view(
     organ: str, axis: str = Query("axial", pattern="^(axial|coronal|sagittal)$"),
     index: int = 0, offset: float = 0, i: int = 0, j: int = 0, k: int = 0,
+    level: float = Query(50, ge=-2000, le=4000), width: float = Query(400, ge=1, le=10000),
+    overlay: bool = True, crosshair: bool = True,
 ):
     offset = checked_offset(offset)
     exp = experiment(organ)
@@ -245,10 +315,85 @@ def slice_view(
     if any(c < 0 or c >= d for c, d in zip((i, j, k), shape)):
         raise HTTPException(422, "Crosshair must lie inside the scan")
     try:
-        png = slice_png(DATA.image, DATA.mask(organ), exp, axis, index, offset, (i, j, k))
+        png = slice_png(DATA.image, DATA.mask(organ), exp, axis, index, offset, (i, j, k),
+                        level-width/2, level+width/2, overlay, crosshair)
     except Exception as exc:
         raise HTTPException(500, f"Could not render image: {exc}") from exc
     return Response(content=png, media_type="image/png", headers={"Cache-Control": "no-store"})
+
+
+from anatomy_lab.fragility import regional_map, organ_summary, METHOD
+
+
+def fragility_distance(distance):
+    distance = checked_offset(distance)
+    if distance <= 0:
+        raise HTTPException(422, 'Choose a positive displacement from 0.5 to 3 mm.')
+    return distance
+
+
+@dataset_cache(maxsize=2)
+def fragility_data(organ, distance):
+    exp = experiment(organ)
+    if exp.original_count == 0:
+        raise HTTPException(422, "Paint the empty segment before computing fragility.")
+    return regional_map(exp, DATA.affine, distance)
+
+
+@app.get('/api/fragility')
+def fragility(organ: str, distance: float = 2):
+    distance = fragility_distance(distance)
+    _, regions, mesh = fragility_data(organ, distance)
+    return {'organ': organ, 'distance_mm': distance, 'cell_mm': 10,
+            'method': METHOD, 'regions': regions, 'mesh': mesh,
+            'summary': organ_summary(experiment(organ), distance)}
+
+
+@app.get('/api/fragility/organs')
+def fragility_organs(distance: float = 2):
+    distance = fragility_distance(distance)
+    rows = []
+    for organ in DATA.structures:
+        try:
+            exp = experiment(organ)
+            if exp.original_count == 0:
+                rows.append({'organ': organ, 'error': 'Empty segment: paint a mask first.'})
+            else:
+                rows.append({'organ': organ, **organ_summary(exp, distance)})
+        except HTTPException as exc:
+            rows.append({'organ': organ, 'error': str(exc.detail)})
+    rows.sort(key=lambda row: row.get('span_pct', -1), reverse=True)
+    return {'distance_mm': distance, 'organs': rows}
+
+
+@app.get('/api/fragility/export')
+def fragility_export(organ: str, distance: float = 2):
+    distance = fragility_distance(distance)
+    values, rows, _ = fragility_data(organ, distance)
+    exp = experiment(organ)
+    full = np.full(DATA.image.shape, np.nan, dtype=np.float32)
+    full[tuple(slice(a,b) for a,b in zip(exp.start, exp.stop))] = values
+    nii = nib.Nifti1Image(full, DATA.affine)
+    nii.header.set_xyzt_units('mm')
+    from io import StringIO
+    csv_text = StringIO()
+    writer = csv.DictWriter(csv_text, fieldnames=list(rows[0]))
+    writer.writeheader(); writer.writerows(rows)
+    settings = {'organ': organ, 'distance_mm': distance, 'cell_mm': 10,
+                'method': METHOD, 'units': 'percent', 'outside_mask': 'NaN',
+                'grid_anchor': 'CT voxel index zero', 'small_sample_threshold_voxels': 50,
+                'source': DATA.kind, 'spacing_mm': DATA.spacing,
+                'affine_ras_mm': DATA.affine.tolist(),
+                'summary': organ_summary(exp, distance),
+                'limitations': 'Grid-dependent descriptive erosion sensitivity; not tissue weakness or calibrated uncertainty.'}
+    result = BytesIO()
+    with zipfile.ZipFile(result, 'w', zipfile.ZIP_DEFLATED) as bundle:
+        bundle.writestr('regional_loss_pct.nii.gz', gzip.compress(nii.to_bytes()))
+        bundle.writestr('regions.csv', csv_text.getvalue())
+        bundle.writestr('settings.json', json.dumps(settings, indent=2))
+        bundle.writestr('organs.json', json.dumps(fragility_organs(distance), indent=2))
+    return Response(result.getvalue(), media_type='application/zip',
+                    headers={'Content-Disposition': 'attachment; filename="anatomical_fragility.zip"'})
 
 
 if __name__ == "__main__":
