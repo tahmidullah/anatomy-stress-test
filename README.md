@@ -219,3 +219,24 @@ Choose **Paint** or **Erase**, set the brush radius in millimeters, and click or
 **Undo stroke** restores the most recent stroke for the selected segment (one-level undo, no redo). Creating or duplicating a segment clears this undo history. Measurements and the surface refresh after edits; existing fragility maps are invalidated. Empty segments can be viewed and painted but cannot produce a fragility map.
 
 Edits remain in the current browser session's server memory and are lost on replacement/restart. **Download mask + results + settings** saves the selected edited mask and its analysis; it does not save all segments as one scene. Original uploaded files are never overwritten. Segment painting is a basic manual tool, not automated segmentation or a full Slicer Segment Editor.
+
+## Saved stability fingerprints
+
+Open **Fragility & analysis**, enter a profile name, and click **Save as new profile**. Saving captures the selected segment at the current boundary displacement; its volume matches the experiment’s perturbed volume. That captured mask becomes the new zero-offset baseline for its fingerprint curve. Choose the reference in A and comparison in B. **Update profile B** replaces B with the current segment, displacement, and entered name; **Undo library change** restores its previous version.
+
+Profiles are independent snapshots saved in browser localStorage (maximum 50) for the same origin, including port. They survive page reloads and server restarts, but clearing browser site data deletes them. Export individual profiles as JSON for backup or import elsewhere. Removing B affects the library only; Undo library change is available until the page closes. This is not a backup of the segmentation itself: continue exporting NIfTI masks separately.
+
+Each schema-v1 profile records exact voxel counts at −3 to +3 mm in 0.5 mm increments, physical spacing, CT affine and dimensions, UTC capture time, captured boundary displacement, protocol version, scan/mask SHA-256 identities, field-of-view status, and a volume-weighted regional-loss histogram. No source CT or mask voxels are included. Names and derived measurements remain potentially sensitive; use non-identifying labels. Imported profiles are structurally validated, not authenticated or independently recomputed.
+
+The comparison includes overlaid percentage-volume curves, a shared-scale heatmap of loss/gain at ±1/2/3 mm, regional erosion-loss distributions at −2 mm, and B-minus-A response differences in percentage points. Step connectors illustrate sampled measurements, not exact sub-step transition locations. Regional distributions use 10 mm cells anchored at voxel zero, with percentages weighted by baseline voxel counts. The last bin includes 100%. Asymmetry is gain minus loss in percentage points; span is gain plus loss. There is no composite stability score.
+
+Image-content hashes and geometry distinguish same-scan comparisons; they do not establish that profiles describe the same organ or measure segmentation accuracy. Different scans/grids and field-of-view contact are explicitly reported. Schema or protocol mismatches are rejected. Small-region counts, voxel spacing, and baseline volumes are shown for interpretation. These are descriptive perturbation fingerprints, not biological fragility or calibrated uncertainty. Real-dataset validation remains outstanding.
+
+### Research context
+
+- [MIRP](https://github.com/oncoray/mirp) and its [perturbation configuration](https://oncoray.github.io/mirp/configuration.html) provide precedent for explicit, reproducible perturbation settings.
+- [Zwanenburg et al., Assessing robustness of radiomic features by image perturbation (2019)](https://pubmed.ncbi.nlm.nih.gov/30679599/) evaluates perturbation-based feature robustness.
+
+These informed the workflow design. No MIRP code or dependency was incorporated, and this implementation is not a reproduction or validation of that study. No novelty claim is made for boundary perturbation itself.
+
+Use **Delete segment** to remove the selected segment from the current session. **Restore deleted** recovers the most recent deletion. Saved fingerprint snapshots remain in the library independently of segment deletion.

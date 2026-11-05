@@ -5,9 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="An educational interactive lab for testing the effect of segmentation boundary perturbations on CT organ-volume measurements." />
   <title>Anatomy Stress Test | CT Geometry Lab</title>
+  <link rel="preload" href="/static/fonts/SpaceGrotesk.ttf" as="font" type="font/ttf" crossorigin />
   <link rel="stylesheet" href="/static/styles.css" />
   <script defer src="/static/plotly.min.js"></script>
   <script defer src="/static/app.js"></script>
+  <script defer src="/static/fingerprints.js"></script>
 </head>
 <body>
   <div class="app-shell">
@@ -71,6 +73,20 @@
             <article class="panel scan-panel"><div class="scan-heading"><div><span>CORONAL</span><small>FACING PATIENT</small></div><b id="coronal-number">--</b></div><div class="scan-frame" tabindex="0" title="Scroll to move through slices; Shift+scroll for 5-slice steps"><img id="coronal-image" alt="Coronal CT slice with segmentation overlays" data-axis="coronal"/></div><input class="slice-slider" id="slice-j" type="range" min="0" max="111" step="1" value="56" aria-label="Coronal slice index"/><div class="orientation"><span>R</span><span>L</span></div></article>
             <article class="panel scan-panel scan-wide"><div class="scan-heading"><div><span>SAGITTAL</span><small>VIEWED FROM PATIENT LEFT</small></div><b id="sagittal-number">--</b></div><div class="scan-frame wide" tabindex="0" title="Scroll to move through slices; Shift+scroll for 5-slice steps"><img id="sagittal-image" alt="Sagittal CT slice with segmentation overlays" data-axis="sagittal"/></div><input class="slice-slider" id="slice-i" type="range" min="0" max="115" step="1" value="58" aria-label="Sagittal slice index"/><div class="orientation"><span>A</span><span>P</span></div></article>
           </div>
+        </section>
+        <section class="panel fingerprint-panel">
+          <div class="panel-eyebrow">SAVED SEGMENTATION EXPERIMENTS</div><h2>Stability fingerprints</h2>
+          <p>Capture the selected segment at the current boundary displacement. Compare its boundary response with another organ, another mask, or a later edit.</p>
+          <div class="fp-actions"><label>Profile name<input id="fp-name" maxlength="120" placeholder="Liver · before correction"></label><button id="fp-save">Save as new profile</button><button id="fp-update">Update profile B</button><label class="fp-import">Import profile JSON<input id="fp-import" type="file" accept=".json"></label></div>
+          <p id="fp-current" role="status"></p><p id="fp-status" role="status">Profiles are stored in this browser on this site. Export JSON to back them up or move between browsers. No CT voxels are stored in profiles.</p>
+          <div class="fp-pair"><label>Profile A · reference<select id="fp-a"></select></label><label>Profile B · comparison<select id="fp-b"></select></label></div>
+          <div class="fp-actions"><button id="fp-export-a">Export A</button><button id="fp-export-b">Export B</button><button id="fp-remove">Remove B from library</button><button id="fp-undo" disabled>Undo library change</button></div>
+          <div id="fp-compatibility" role="status"></div>
+          <div class="fp-cards"><article id="fp-card-a"></article><article id="fp-card-b"></article></div>
+          <div id="fp-curves" aria-label="Overlaid volume-response curves"></div>
+          <div class="fp-charts"><div id="fp-heatmap" aria-label="Fixed-offset sensitivity comparison"></div><div id="fp-regions" aria-label="Volume-weighted regional loss distributions"></div></div>
+          <div id="fp-delta" aria-label="Difference between normalized response curves"></div>
+          <details><summary>How to read this fingerprint</summary><p>Curves show percentage volume change relative to each mask’s own baseline. Heatmap cells show loss or gain at fixed offsets, using one shared color scale. Regional bars show the fraction of baseline volume in 10 mm regions with each erosion-loss range at −2 mm; they are weighted by voxel count, not region count. Difference = B minus A in percentage points. No composite stability score or accuracy claim is made.</p><p>Grid placement, voxel spacing, organ size, and scan boundaries affect these results. Low displacement may produce no voxel changes. Same-scan checks compare image content and geometry; they do not verify that the segments describe the same organ. Profiles contain labels and derived measurements; use non-identifying names.</p></details>
         </section>
         <section class="panel fragility-panel">
           <div class="panel-heading"><div><span class="panel-eyebrow">SEGMENTATION SENSITIVITY</span><h3>Anatomical fragility map</h3></div></div>

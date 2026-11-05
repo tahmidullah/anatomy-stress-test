@@ -13,7 +13,7 @@
     $('organ-list').innerHTML = '';
     for (const item of state.meta.structures) {
       const b=document.createElement('button');b.className='organ-button'+(item.name===state.organ?' active':'');
-      b.type='button';b.innerHTML=`<i class="organ-color" style="background:${item.color}"></i><span></span><span class="organ-arrow">›</span>`;
+      b.dataset.organ=item.name;b.type='button';b.innerHTML=`<i class="organ-color" style="background:${item.color}"></i><span></span><span class="organ-arrow">›</span>`;
       b.querySelector('span').textContent=item.label;
       b.addEventListener('click',()=>selectOrgan(item.name));$('organ-list').appendChild(b);
     }
@@ -25,6 +25,7 @@
     $('sagittal-number').textContent=`SLICE ${state.i+1} / ${state.meta.shape[0]}`;
   }
   function updateMetrics(data) {
+    document.dispatchEvent(new Event('anatomy-selection'));
     $('m-baseline').textContent=fmt(data.baseline_ml,2)+' mL';
     $('m-current').textContent=fmt(data.current_ml,2)+' mL';
     $('offset').disabled=data.empty || $('edit-mode').value!=='navigate';
@@ -105,7 +106,7 @@
     invalidateFragility();
     state.organ=name;state.offset=0;$('offset').value=0;state.curve=null;
     ++state.renderToken;
-    setOrganButtons();$('mesh-title').textContent=$('organ-label').value;
+    setOrganButtons();document.dispatchEvent(new Event('anatomy-selection'));$('mesh-title').textContent=$('organ-label').value;
     try {
       const [measure,curve]=await Promise.all([
         fetchJSON('/api/metrics?'+params({organ:name,offset:0})),
@@ -179,13 +180,23 @@
       const response=await fetch('/api/segments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
       const result=await response.json();if(!response.ok)throw new Error(typeof result.detail==='string'?result.detail:'Invalid segment edit.');
       state.meta=await fetchJSON('/api/meta');$('structure-count').textContent=String(state.meta.structures.length).padStart(2,'0');
-      state.organ=null;state.curve=null;await selectOrgan(result.organ);
+      state.organ=null;state.curve=null;
+      if(result.organ)await selectOrgan(result.organ);
+      else {
+        setOrganButtons();$('organ-label').value='';$('mesh-title').textContent='No segment selected';
+        for(const id of ['m-baseline','m-current','m-delta','m-voxels'])$(id).textContent='—';
+        for(const id of ['mesh-plot','curve-plot'])Plotly.purge($(id));
+        for(const axis of ['axial','coronal','sagittal'])$(axis+'-image').removeAttribute('src');
+        $('offset').disabled=true;document.dispatchEvent(new Event('anatomy-selection'));
+      }
       if(keepPosition){[state.i,state.j,state.k]=position;await updateViews();}
-      $('edit-status').textContent='Saved in this session. Download the mask to keep your edits.';
+      $('edit-status').textContent=payload.operation==='delete'?'Segment deleted. Restore deleted recovers the most recent deletion. Saved fingerprints remain in your library.':'Saved in this session. Download the mask to keep your edits.';
     }catch(error){$('edit-status').textContent=error.message;}
     finally{editBusy=false;document.querySelectorAll('.segment-edit button').forEach(b=>b.disabled=false);}
   }
   function bindEditing(){
+    $('segment-delete').onclick=()=>editSegment({operation:'delete',organ:state.organ});
+    $('segment-restore').onclick=()=>editSegment({operation:'restore'});
     $('segment-new').onclick=()=>editSegment({operation:'create',label:$('organ-label').value});
     $('segment-copy').onclick=()=>editSegment({operation:'duplicate',organ:state.organ,label:$('organ-label').value+' copy'});
     $('segment-rename').onclick=()=>editSegment({operation:'rename',organ:state.organ,label:$('organ-label').value},true);
@@ -317,7 +328,7 @@
     const segments=document.createElement('div');segments.append(sidebar.querySelector('.sidebar-heading'),$('organ-list'));
     const label=$('organ-label').closest('label');segments.append(label);
     const edit=document.createElement('div');edit.className='segment-edit';
-    edit.innerHTML='<div class="segment-actions"><button id="segment-new" type="button">New empty</button><button id="segment-copy" type="button">Duplicate</button><button id="segment-rename" type="button">Rename</button><button id="segment-undo" type="button">Undo stroke</button></div><label>Slice tool<select id="edit-mode"><option value="navigate">Navigate</option><option value="paint">Paint</option><option value="erase">Erase</option></select></label><label>Brush radius (mm)<input id="brush-radius" type="number" min="0.5" max="30" step="0.5" value="3"></label><p id="edit-status" role="status">Name a new segment above, or select an uploaded segment to edit. Paint/erase affects only the displayed slice.</p>';
+    edit.innerHTML='<div class="segment-actions"><button id="segment-new" type="button">New empty</button><button id="segment-copy" type="button">Duplicate</button><button id="segment-rename" type="button">Rename</button><button id="segment-undo" type="button">Undo stroke</button><button id="segment-delete" type="button">Delete segment</button><button id="segment-restore" type="button">Restore deleted</button></div><label>Slice tool<select id="edit-mode"><option value="navigate">Navigate</option><option value="paint">Paint</option><option value="erase">Erase</option></select></label><label>Brush radius (mm)<input id="brush-radius" type="number" min="0.5" max="30" step="0.5" value="3"></label><p id="edit-status" role="status">Name a new segment above, or select an uploaded segment to edit. Paint/erase affects only the displayed slice.</p>';
     segments.append(edit);section('Segments',segments);
     section('Boundary experiment',document.querySelector('.control-card'));
     const display=document.createElement('div');display.className='display-controls';
@@ -334,9 +345,9 @@
       panel.dataset.view=name.toLowerCase();const button=document.createElement('button');button.className='maximize-view';button.textContent='⤢';button.setAttribute('aria-label','Maximize '+name+' view');
       button.addEventListener('click',()=>{const active=panel.classList.toggle('maximized');workspace.classList.toggle('has-maximized',active);button.setAttribute('aria-label',(active?'Restore ':'Maximize ')+name+' view');resizeViews();});panel.append(button);
     }
-    const analysis=document.createElement('div');analysis.id='analysis-workspace';analysis.hidden=true;analysis.append(document.querySelector('.fragility-panel'),document.querySelector('.analysis-grid'));content.append(analysis);
+    const analysis=document.createElement('div');analysis.id='analysis-workspace';analysis.hidden=true;analysis.append(document.querySelector('.fingerprint-panel'),document.querySelector('.fragility-panel'),document.querySelector('.analysis-grid'));content.append(analysis);
     const footer=document.querySelector('.footer');footer.innerHTML='<span>Scroll: slices · Click: linked position · Shift+scroll: 5 slices</span><span>Credit to Tahmid Ullah</span>';content.append(footer);
-    function resizeViews(){requestAnimationFrame(()=>{fitSlices();for(const id of ['mesh-plot','curve-plot','fragility-plot'])if($(id).data && $(id).offsetParent)Plotly.Plots.resize($(id));});}
+    function resizeViews(){requestAnimationFrame(()=>{fitSlices();for(const id of ['mesh-plot','curve-plot','fragility-plot','fp-curves','fp-heatmap','fp-regions','fp-delta'])if($(id).data && $(id).offsetParent)Plotly.Plots.resize($(id));});}
     function tab(analysisVisible){workspace.hidden=analysisVisible;analysis.hidden=!analysisVisible;$('viewer-tab').setAttribute('aria-pressed',String(!analysisVisible));$('analysis-tab').setAttribute('aria-pressed',String(analysisVisible));resizeViews();}
     $('viewer-tab').onclick=()=>tab(false);$('analysis-tab').onclick=()=>tab(true);
     $('load-toolbar').onclick=()=>{$('load-section').open=true;$('load-section').scrollIntoView({block:'nearest'});};
@@ -355,7 +366,7 @@
       $('source-detail').textContent=state.meta.source==='synthetic'?'No patient data included':'Loaded from local disk';
       for(const [key,idx] of [['slice-i',0],['slice-j',1],['slice-k',2]]) $(key).max=state.meta.shape[idx]-1;
       if(!state.bound){bindControls();state.bound=true;}
-      await selectOrgan(state.meta.structures.some(s=>s.name==='liver')?'liver':state.meta.structures[0].name);
+      if(state.meta.structures.length)await selectOrgan(state.meta.structures.some(s=>s.name==='liver')?'liver':state.meta.structures[0].name);
     }catch(e){err('Initialization error: '+e.message);}
   }
   window.addEventListener('load',init);

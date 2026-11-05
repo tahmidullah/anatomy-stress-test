@@ -120,7 +120,7 @@ from anatomy_lab.editing import brush
 import copy
 
 class SegmentEdit(BaseModel):
-    operation: Literal['create', 'duplicate', 'rename', 'stroke', 'undo']
+    operation: Literal['create', 'duplicate', 'rename', 'stroke', 'undo', 'delete', 'restore']
     organ: Optional[str] = None
     label: str = Field('', max_length=120)
     axis: Literal['axial', 'coronal', 'sagittal'] = 'axial'
@@ -145,7 +145,7 @@ async def edit_segment(edit: SegmentEdit, request: Request):
     dataset._loaded = dict(source._loaded)
     dataset.labels = dict(getattr(source, 'labels', {}))
     organ = edit.organ
-    if edit.operation != 'create' and organ not in source.structures:
+    if edit.operation not in ('create', 'restore') and organ not in source.structures:
         raise HTTPException(404, 'Select an existing segment.')
     try:
         if edit.operation in ('create', 'duplicate'):
@@ -157,6 +157,19 @@ async def edit_segment(edit: SegmentEdit, request: Request):
             dataset.masks[organ] = mask
             dataset.labels[organ] = edit.label.strip()
             dataset.undo = None
+        elif edit.operation == 'delete':
+            dataset.deleted_segment = (organ, source.mask(organ), dataset.labels.get(organ, organ.replace("_", " ").title()))
+            for mapping in (dataset.masks, dataset.mask_files, dataset._loaded, dataset.labels):
+                mapping.pop(organ, None)
+            dataset.undo = None
+            organ = dataset.structures[0] if dataset.structures else None
+        elif edit.operation == 'restore':
+            deleted = getattr(source, 'deleted_segment', None)
+            if deleted is None: raise ValueError('No deleted segment to restore.')
+            organ, mask, label = deleted
+            dataset.masks[organ] = mask
+            dataset.labels[organ] = label
+            dataset.deleted_segment = None
         elif edit.operation == 'rename':
             if not edit.label.strip(): raise ValueError('Enter a segment name.')
             dataset.labels[organ] = edit.label.strip()
@@ -394,6 +407,44 @@ def fragility_export(organ: str, distance: float = 2):
         bundle.writestr('organs.json', json.dumps(fragility_organs(distance), indent=2))
     return Response(result.getvalue(), media_type='application/zip',
                     headers={'Content-Disposition': 'attachment; filename="anatomical_fragility.zip"'})
+
+
+from anatomy_lab.fingerprint import Profile, make_profile, compare
+
+class FingerprintRequest(BaseModel):
+    organ: str
+    name: str = Field(min_length=1,max_length=120)
+    offset: float = 0
+
+class ProfilePair(BaseModel):
+    a: Profile
+    b: Profile
+
+@app.post('/api/fingerprints')
+def capture_fingerprint(body: FingerprintRequest):
+    try:
+        offset = checked_offset(body.offset)
+        source = CURRENT.get()
+        exp = experiment(body.organ)
+        if offset:
+            mask = np.zeros(source.image.shape, dtype=bool)
+            mask[tuple(slice(a,b) for a,b in zip(exp.start,exp.stop))] = exp.offset_mask(offset)
+            source = copy.copy(source)
+            source.masks = {body.organ: mask}
+            source.mask_files = {}
+            source._loaded = {}
+            exp = StressExperiment.from_mask(mask, source.spacing)
+        return make_profile(source, exp, body.organ, body.name, offset).model_dump()
+    except ValueError as exc:
+        raise HTTPException(422,str(exc)) from exc
+
+@app.post('/api/fingerprints/validate')
+def validate_fingerprint(profile: Profile):
+    return profile.model_dump()
+
+@app.post('/api/fingerprints/compare')
+def compare_fingerprints(pair: ProfilePair):
+    return compare(pair.a,pair.b)
 
 
 if __name__ == "__main__":

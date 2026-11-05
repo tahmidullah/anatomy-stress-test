@@ -653,3 +653,50 @@ body {margin:0;font-size:12px;overflow:hidden;background:#080616;}
 .content{width:100%;max-width:none;margin:0;}.metric-card{min-height:0;}.workspace .scan-wide{grid-column:auto;}.workspace .scan-panel{padding:0;}.workspace .scan-frame{aspect-ratio:auto;}
 
 .segment-actions{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin:8px 0;}.segment-edit button{padding:6px;background:#222440;color:#e7e9ff;border:1px solid #53577c;border-radius:3px;cursor:pointer;}.segment-edit p{font-size:10px;color:#b8bfdf;line-height:1.4;}.scan-frame img{touch-action:none;user-select:none;}.scan-frame img.painting{cursor:crosshair;outline:1px solid #e6cd56;}
+.fingerprint-panel{padding:22px;margin-bottom:18px;}.fingerprint-panel h2{font-size:24px;margin:8px 0;}.fingerprint-panel p{font-size:12px;color:#bdc5e7;line-height:1.6;}.fp-actions{display:flex;gap:10px;align-items:end;flex-wrap:wrap;margin:16px 0;}.fingerprint-panel button{padding:9px 12px;border:1px solid #606a9d;border-radius:5px;background:#162E93;color:#fff;cursor:pointer;}.fingerprint-panel input,.fingerprint-panel select{display:block;background:#080616;color:#fff;border:1px solid #606a9d;border-radius:4px;padding:8px;margin-top:6px;max-width:100%;box-sizing:border-box;}.fp-pair,.fp-cards,.fp-charts{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:15px;}.fp-pair select{width:100%;}.fp-cards article{padding:14px;border-left:3px solid #8da3ff;background:#12132a;}.fp-cards article:nth-child(2){border-color:#53d9bd;}.fp-cards article:empty{display:none;}#fp-compatibility{margin:14px 0;color:#f0d6a0;font-size:12px;}#fp-curves:not(:empty),#fp-delta:not(:empty){height:300px;}.fp-charts>div:not(:empty){height:290px;}.fingerprint-panel details{margin-top:18px;font-size:12px;}.fingerprint-panel label{font-size:12px;}@media(max-width:1000px){.fp-charts,.fp-cards{grid-template-columns:1fr;}}
+
+/* Locally bundled typography and restrained workstation motion. */
+@font-face {
+  font-family: 'Space Grotesk';
+  src: url('/static/fonts/SpaceGrotesk.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+}
+:root { --font-interface: 'Space Grotesk', 'Segoe UI', sans-serif; }
+html, body, button, input, select, textarea { font-family: var(--font-interface); }
+.brand strong { font-weight: 700; letter-spacing: -.55px; }
+.brand small { letter-spacing: .35px; }
+h1, h2, h3 { font-family: var(--font-interface); letter-spacing: -.4px; }
+.metric-value { font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -.7px; }
+.metric-label, .sidebar-heading, .scan-heading, .panel-eyebrow { letter-spacing: 1.1px; }
+.tick-labels, .scan-heading b, .fp-cards { font-variant-numeric: tabular-nums; }
+button, .sidebar summary {
+  transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+button:not(:disabled):hover { border-color: #8da3ff; box-shadow: inset 0 0 0 1px #8da3ff33; }
+button:not(:disabled):active { box-shadow: inset 0 0 0 1px #a7b6ff88; }
+button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible {
+  outline: 2px solid #a7b6ff; outline-offset: 2px;
+}
+.organ-button.active { box-shadow: inset 3px 0 0 #a7b6ff; }
+.work-tabs button[aria-pressed=true] { box-shadow: 0 0 14px #2F2FE433; }
+.sidebar summary:hover { background: #2a2d50; }
+input:not([type=range]), select { transition: border-color 160ms ease, box-shadow 160ms ease; }
+@keyframes panel-arrive {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes viewer-arrive { from { opacity: .6; } to { opacity: 1; } }
+@media (prefers-reduced-motion: no-preference) {
+  .brand { animation: panel-arrive 320ms ease-out both; }
+  #analysis-workspace:not([hidden]) > section,
+  #analysis-workspace:not([hidden]) > .analysis-grid { animation: panel-arrive 240ms ease-out both; }
+  #analysis-workspace:not([hidden]) > section:nth-child(2) { animation-delay: 45ms; }
+  .workspace:not([hidden]) { animation: viewer-arrive 200ms ease-out; }
+  .sidebar details[open] > div, .sidebar details[open] > section { animation: panel-arrive 180ms ease-out; }
+  .fp-cards article:not(:empty) { animation: panel-arrive 220ms ease-out; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
